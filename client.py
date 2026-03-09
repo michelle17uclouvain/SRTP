@@ -3,7 +3,7 @@ import argparse
 import sys
 import time
 from urllib.parse import urlparse
-from srtpsegment import SRTPSegment
+from SRTPSegment import SRTPSegment
 
 WINDOW_SIZE = 32
 TIMEOUT = 2.0
