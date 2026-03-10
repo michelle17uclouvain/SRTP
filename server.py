@@ -8,7 +8,6 @@ from SRTPSegment import SRTPSegment
 WINDOW_SIZE = 32
 TIMEOUT = 2.0
 
-
 def make_data(seqnum, payload, window=WINDOW_SIZE):
     timestamp = int(time.time() * 1000) & 0xFFFFFFFF
     seg = SRTPSegment(
@@ -20,7 +19,6 @@ def make_data(seqnum, payload, window=WINDOW_SIZE):
         payload=payload,
     )
     return seg.encode()
-
 
 def run_server(hostname, port, root_dir):
     sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
@@ -37,11 +35,7 @@ def run_server(hostname, port, root_dir):
     print(f"Serveur SRTP en attente sur {hostname}:{port}...", file=sys.stderr)
 
     while True:
-        try:
-            data, client_address = sock.recvfrom(2048)
-        except KeyboardInterrupt:
-            print("Serveur arrêté.", file=sys.stderr)
-            break
+        data, client_address = sock.recvfrom(2048)
 
         seg = SRTPSegment.decode(data)
         if seg is None:
@@ -129,4 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--root", default=".", help="Dossier racine (défaut: .)")
     args = parser.parse_args()
 
-    run_server(args.hostname, args.port, args.root)
+    try:
+        run_server(args.hostname, args.port, args.root)
+    except KeyboardInterrupt:
+        print("Serveur arrêté.", file=sys.stderr)

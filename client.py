@@ -7,7 +7,7 @@ from SRTPSegment import SRTPSegment
 
 WINDOW_SIZE = 32
 TIMEOUT = 2.0
-
+MAX_RETRIES = 10
 
 def send_ack(sock, address, next_seq, last_timestamp=0):
     seg = SRTPSegment(
@@ -19,7 +19,6 @@ def send_ack(sock, address, next_seq, last_timestamp=0):
         payload=b"",
     )
     sock.sendto(seg.encode(), address)
-
 
 def run_client(server_host, server_port, file_path, save_path):
     sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
@@ -51,12 +50,19 @@ def run_client(server_host, server_port, file_path, save_path):
     recv_buffer = {}
     next_expected = 0
     received_data = []
+    retries = 0
 
     while True:
         try:
             data, address = sock.recvfrom(2048)
+            retries = 0
         except socket.timeout:
-            print("Timeout, renvoi du dernier ACK...", file=sys.stderr)
+            retries += 1
+            if retries >= MAX_RETRIES:
+                print("Trop de timeouts, abandon.", file=sys.stderr)
+                sock.close()
+                sys.exit(1)
+            print(f"Timeout ({retries}/{MAX_RETRIES}), renvoi du dernier ACK...", file=sys.stderr)
             send_ack(sock, server_address, next_expected % 2048)
             continue
 
