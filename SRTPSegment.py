@@ -118,7 +118,3 @@ class SRTPSegment:
         except ValueError:
             return None
         return segment
-
-
-            
-                    
