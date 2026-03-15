@@ -3,6 +3,10 @@ import os
 import socket
 import threading
 import tempfile
+import pytest
+import subprocess
+import time
+import hashlib
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from SRTPSegment import SRTPSegment
@@ -293,3 +297,33 @@ def test_client_ignores_corrupted_packet():
     finally:
         os.unlink(save_path)
         t.join(timeout=3)
+
+def test_transfer_integrity_large_file():
+    """Vérifie qu'un gros fichier est transmis sans erreur."""
+    server_port = 12345
+    filename = "test_large.bin"
+    received_filename = "received_step4.bin"
+    
+    content = os.urandom(1024 * 100)
+    with open(filename, "wb") as f:
+        f.write(content)
+    
+    server_proc = subprocess.Popen([
+        "python3", "server.py", "::1", str(server_port), "--root", "."
+    ])
+    time.sleep(0.5)
+    
+    try:
+        url = f"http://[::1]:{server_port}/{filename}"
+        subprocess.run(["python3", "client.py", url, "--save", received_filename], check=True)
+        
+        with open(received_filename, "rb") as f:
+            received_content = f.read()
+            
+        assert hashlib.md5(content).hexdigest() == hashlib.md5(received_content).hexdigest()
+        print("\n[SUCCESS] Le fichier a été transmis parfaitement.")
+
+    finally:
+        server_proc.terminate()
+        if os.path.exists(filename): os.remove(filename)
+        if os.path.exists(received_filename): os.remove(received_filename)

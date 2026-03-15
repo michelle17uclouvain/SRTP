@@ -78,39 +78,39 @@ def run_server(hostname, port, root_dir):
 
         sock.settimeout(TIMEOUT)
 
-        client_window = 1
+        client_window = WINDOW_SIZE
         acked_up_to = 0
         i = 0
 
         while acked_up_to < len(blocks):
             while i < len(blocks) and i < acked_up_to + client_window:
-                sock.sendto(make_data(i, blocks[i]), client_address)
+                packet = make_data(i, blocks[i])
+                sock.sendto(packet, client_address)
                 print(f"Envoyé bloc seq={i % 2048}", file=sys.stderr)
                 i += 1
 
             try:
                 raw, _ = sock.recvfrom(2048)
-            except socket.timeout:
-                print("Timeout, retransmission...", file=sys.stderr)
-                i = acked_up_to
-                continue
+                ack_seg = SRTPSegment.decode(raw)
 
-            ack_seg = SRTPSegment.decode(raw)
-            if ack_seg is None:
-                continue
-            if ack_seg.ptype not in (SRTPSegment.PTYPE_ACK, SRTPSegment.PTYPE_SACK):
-                continue
+                if ack_seg and ack_seg.ptype in (SRTPSegment.PTYPE_ACK, SRTPSegment.PTYPE_SACK):
+                    
+                    client_window = max(1, ack_seg.window)
+                
+                    new_ack_seq = ack_seg.seqnum    
+                
+                    current_expected_seq = acked_up_to % 2048
+                    diff = (new_ack_seq - current_expected_seq) % 2048
+                    
+                    if diff > 0:
+                        acked_up_to += diff
+                        i = max(i, acked_up_to)
+                        print(f"ACK reçu: next={new_ack_seq}, la fenêtre glisse à {acked_up_to}", file=sys.stderr)
 
-            client_window = max(1, ack_seg.window)
-            new_ack = ack_seg.seqnum
-
-            expected_seqnum = acked_up_to % 2048
-            diff = (new_ack - expected_seqnum) % 2048
-            if diff > 0:
-                acked_up_to += diff
-                i = max(i, acked_up_to)
-                print(f"ACK reçu : seqnum={new_ack}, acked_up_to={acked_up_to}", file=sys.stderr)
-
+            except socket.timeout:   
+                print(f"Timeout! Retransmission à partir de {acked_up_to}", file=sys.stderr)
+                i = acked_up_to 
+      
         sock.sendto(make_data(acked_up_to, b"", window=0), client_address)
         print("Transfert terminé.", file=sys.stderr)
         sock.settimeout(None)
