@@ -1,0 +1,14 @@
+SERVER: lancement du serveur
+SERVER : creation du socket UDP sur [::1]:9999
+serveur ecoute sur le port [::1]:9999
+SERVER : en attente d'une requête client...
+SERVER:segment reçu de ('::1', 55560, 0, 0), taille=29 
+Requete recu du client 
+SERVER: requette reçue : 'GET /test.txt'
+SERVER: Chemin résolu : files/test.txt
+SERVER: Segment DATA envoyé à ('::1', 55560, 0, 0), seq=0
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 55560, 0, 0), taille=12 octets
+SERVEUR : ACK recu seq=0
+transfert simple terminé
+SERVEUR : fermeture du socket

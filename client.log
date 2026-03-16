@@ -1,0 +1,14 @@
+CLIENT : analyse de l'URL : http://[::1]:9999/test.txt
+CLIENT: host=::1, port=9999, path=/test.txt
+CLIENT: lancement du client
+CLIENT : creation du socket 
+CLIENT:  Résolution de l'adresse du serveur  ::1:9999
+[CLIENT: adresse resolue : [(<AddressFamily.AF_INET6: 10>, <SocketKind.SOCK_DGRAM: 2>, 17, '', ('::1', 9999, 0, 0))]
+CLIENT : requette GET envoyé /test.txt
+CLIENT Segment envoyé : seq=0, length=13
+CLIENT : en attente d'un segment DATA..
+CLIENT : datagramme recu de ('::1', 9999, 0, 0), taille=31 octet
+CLIENT : sauvegarde du fichier dans : resultat.txt
+CLIENT : ACK envoyé seq=0
+CLIENT : tranfert simple terminé
+CLIENT : fermerture du socket 
