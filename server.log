@@ -1,14 +1,69 @@
 SERVER: lancement du serveur
-SERVER : creation du socket UDP sur [::1]:9999
-serveur ecoute sur le port [::1]:9999
+SERVER : creation du socket UDP sur [::]:8000
+serveur ecoute sur le port [::]:8000
 SERVER : en attente d'une requête client...
-SERVER:segment reçu de ('::1', 55560, 0, 0), taille=29 
-Requete recu du client 
+SERVER:segment reçu de ('::1', 41830, 0, 0), taille=29 
+ SERVEUR : Requete recu du client 
 SERVER: requette reçue : 'GET /test.txt'
-SERVER: Chemin résolu : files/test.txt
-SERVER: Segment DATA envoyé à ('::1', 55560, 0, 0), seq=0
+SERVER: Chemin résolu : ./test.txt
+SERVER : bloc crée num=0, taille=1024
+SERVER : bloc crée num=1, taille=1024
+SERVER : bloc crée num=2, taille=1024
+SERVER : bloc crée num=3, taille=1024
+SERVER : bloc crée num=4, taille=1024
+SERVER : bloc crée num=5, taille=1024
+SERVER : bloc crée num=6, taille=1024
+SERVER : bloc crée num=7, taille=1024
+SERVER : bloc crée num=8, taille=275
+SERVER : fichier decoupe en 9 bloc(s)
+SERVER : envoi du bloc seq=0
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=0, payload=1024
 SERVER: En attente d'un ACK...
-SERVER: ACK reçu de ('::1', 55560, 0, 0), taille=12 octets
-SERVEUR : ACK recu seq=0
-transfert simple terminé
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=0
+SERVER : envoi du bloc seq=1
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=1, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=1
+SERVER : envoi du bloc seq=2
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=2, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=2
+SERVER : envoi du bloc seq=3
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=3, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=3
+SERVER : envoi du bloc seq=4
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=4, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=4
+SERVER : envoi du bloc seq=5
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=5, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=5
+SERVER : envoi du bloc seq=6
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=6, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=6
+SERVER : envoi du bloc seq=7
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=7, payload=1024
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=7
+SERVER : envoi du bloc seq=8
+SERVER: Segment DATA envoyé à ('::1', 41830, 0, 0), seq=8, payload=275
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK reçu pour seq=8
+SERVER : envoi du segment de fin
+SERVER : segment de fin envoyé seq=9
+SERVER: En attente d'un ACK...
+SERVER: ACK reçu de ('::1', 41830, 0, 0), taille=12 octets
+SERVER : ACK de fin reçu pour seq=9
 SERVEUR : fermeture du socket

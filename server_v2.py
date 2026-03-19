@@ -3,8 +3,6 @@ import os
 import socket
 import sys
 import time 
-
-
 from SRTPSegment import SRTPSegment
 
 MAX_DATAGRAM_SIZE=2048
@@ -62,6 +60,33 @@ def read_file_content(full_path):
     with open(full_path,"rb") as f:
         return f.read()
     
+def split_file(content):
+    blocks=[]
+    max_size=SRTPSegment.MAX_LENGTH
+    for i in range(0,len(content),max_size):
+        block=content[i:i +max_size]
+        blocks.append(block)
+        log(f"SERVER : bloc crée num={len(blocks)-1}, taille={len(block)}")
+    return blocks
+
+def send_file_block(sock,client_addr,content):
+    blocks=split_file(content)
+    log(f"SERVER : fichier decoupe en {len(blocks)} bloc(s)")
+    seqnum=0
+
+    for block in blocks:
+        log(f"SERVER : envoi du bloc seq={seqnum}")
+        send_data_segment(sock,client_addr,seqnum,block)
+        ack_segment,addr=receive_ack(sock)
+        log(f"SERVER : ACK reçu pour seq={ack_segment.seqnum}")
+        seqnum+=1
+
+    log("SERVER : envoi du segment de fin")
+    send_end_segment(sock,client_addr,seqnum)
+    ack_segment, addr2= receive_ack(sock)
+    log(f"SERVER : ACK de fin reçu pour seq={ack_segment.seqnum}")
+        
+
 def build_data_segment(seqnum,payload):
      return SRTPSegment(
         ptype=SRTPSegment.PTYPE_DATA,
@@ -76,6 +101,20 @@ def send_data_segment(sock,client_addr,seqnum,payload):
     segment=build_data_segment(seqnum,payload)
     sock.sendto(segment.encode(),client_addr)
     log(f"SERVER: Segment DATA envoyé à {client_addr}, seq={seqnum}, payload={len(payload)}")
+
+
+def send_end_segment(sock,client_addr,seqnum):
+    end_segment=SRTPSegment(
+        ptype=SRTPSegment.PTYPE_DATA,
+        window=0,
+        seqnum=seqnum,
+        length=0,
+        timestamp=int(time.time()),
+        payload=b"",
+    )
+    sock.sendto(end_segment.encode(), client_addr)
+    log(f"SERVER : segment de fin envoyé seq={seqnum}")
+
 
 def receive_ack(sock):
     log("SERVER: En attente d'un ACK...")
@@ -94,23 +133,14 @@ def run_server(host, port,root_dir):
     log(f"serveur ecoute sur le port [{host}]:{port}")
     try :
         request_segment,client_addr=receive_request(sock)
-        log("Requete recu du client ")
+        log(" SERVEUR : Requete recu du client ")
         full_path=extract_full_path(request_segment,root_dir)
 
         if not os.path.isfile(full_path):
             raise FileNotFoundError(f"Fichier introuvable :{full_path}")
         
         content=read_file_content(full_path)
-
-        if len(content) > SRTPSegment.MAX_LENGTH:
-            log(f":SERVER: fichier trop grand pour l'étape simple, troncature à {SRTPSegment.MAX_LENGTH} octets")
-            content=content[:SRTPSegment.MAX_LENGTH]
-        
-        send_data_segment(sock,client_addr,0,content)
-
-        ack_segment,addr=receive_ack(sock)
-        log(f"SERVEUR : ACK recu seq={ack_segment.seqnum}")
-        log("transfert simple terminé")
+        send_file_block(sock,client_addr,content)
     finally:
         sock.close()
         log("SERVEUR : fermeture du socket")

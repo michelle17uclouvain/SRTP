@@ -74,6 +74,21 @@ def receive_data_segment(sock):
     
     return segment
 
+def receive_file(sock,server_addr):
+    file_content=bytearray()
+    while True:
+        segment=receive_data_segment(sock)
+        log(f"CLIENT : segment DATA reçu seq={segment.seqnum}, length={segment.length}")
+
+        if segment.length==0:
+            log(f"CLIENT: fin de transfert du fichier")
+            send_ack(sock,server_addr,segment.seqnum)
+            break
+        file_content.extend(segment.payload)
+        send_ack(sock,server_addr,segment.seqnum)
+    return bytes(file_content)
+
+
 def save_file(save_path,content):
     log(f"CLIENT : sauvegarde du fichier dans : {save_path}")
     with open(save_path,"wb") as f: 
@@ -101,10 +116,8 @@ def run_client(server_host,server_port,file_path,save_path):
     try:
         server_addr = resolve_server_address(server_host,server_port)
         send_get_request(sock,server_addr,file_path)
-        data_segment=receive_data_segment(sock)
-        save_file(save_path,data_segment.payload)
-        send_ack(sock,server_addr,data_segment.seqnum)
-
+        content=receive_file(sock,server_addr)
+        save_file(save_path,content)
         log("CLIENT : tranfert simple terminé")
     finally:
         sock.close()
