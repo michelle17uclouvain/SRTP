@@ -8,6 +8,8 @@ from SRTPSegment import SRTPSegment
 
 TIMEOUT=4.0
 MAX_DATAGRAM_SIZE=2048
+WINDOWS_SIZE=63
+SEQ_MOD=2048
 
 
 def log(message):
@@ -71,23 +73,56 @@ def receive_data_segment(sock):
     segment=SRTPSegment.decode(data)
     if segment.ptype!=SRTPSegment.PTYPE_DATA:
         raise ValueError("Le serveur foit répondre avec un segment de type DATA")
-    
     return segment
 
-def receive_file(sock,server_addr):
-    file_content=bytearray()
+def get_receive_window(recv_buffer):
+    return WINDOWS_SIZE-len(recv_buffer)
+
+def receive_file(sock, server_addr):
+    file_content = bytearray()
+    recv_buffer = {}
+    next_expected = 0
+
     while True:
-        segment=receive_data_segment(sock)
-        log(f"CLIENT : segment DATA reçu seq={segment.seqnum}, length={segment.length}")
+        try:
+            segment = receive_data_segment(sock)
+        except socket.timeout:
+            log(f"CLIENT: timeout de réception")
+            continue
+        except (ValueError, OSError):
+            log(f"CLIENT: paquet invalide ignore")
+            continue
+        log(f"CLIENT: segment DATA reçu seq={segment.seqnum}, length={segment.length}")
 
-        if segment.length==0:
-            log(f"CLIENT: fin de transfert du fichier")
-            send_ack(sock,server_addr,segment.seqnum)
-            break
-        file_content.extend(segment.payload)
-        send_ack(sock,server_addr,segment.seqnum)
+        #paquet attendu
+        if segment.seqnum == next_expected:
+            if segment.length == 0:
+                log("CLIENT: fin de transfert")
+                next_expected = (next_expected + 1) % SEQ_MOD
+                send_ack(sock, server_addr, next_expected, recv_buffer, segment.timestamp)
+                break
+
+            file_content.extend(segment.payload)
+            next_expected = (next_expected + 1) % SEQ_MOD
+            next_expected, finished, _ = empty_buffer(recv_buffer, next_expected, file_content)
+            send_ack(sock, server_addr, next_expected, recv_buffer, segment.timestamp)
+            if finished:
+                log("CLIENT: fin de transfert venu du buffer")
+                break
+            continue
+        #paquet pas en ordre mais dans la fenetre donc on accepte 
+        if is_in_window(segment.seqnum, next_expected):
+            if segment.seqnum not in recv_buffer:
+                recv_buffer[segment.seqnum] = segment
+                log(f"CLIENT: segment pas en  ordre stocke seq={segment.seqnum}")
+
+            send_ack(sock, server_addr, next_expected, recv_buffer, segment.timestamp)
+            continue
+
+        #paquet qui n'est pas dans la fenete
+        log(f"CLIENT: segment ignoré seq={segment.seqnum}")
+
     return bytes(file_content)
-
 
 def save_file(save_path,content):
     log(f"CLIENT : sauvegarde du fichier dans : {save_path}")
@@ -95,20 +130,40 @@ def save_file(save_path,content):
         f.write(content)
     
 
-def build_ack_segment(seqnum):
+def build_ack_segment(next_expected,recv_buffer,last_timestamp):
     return SRTPSegment(
         ptype=SRTPSegment.PTYPE_ACK,
-        window=1,
-        seqnum=seqnum,
+        window=get_receive_window(recv_buffer),
+        seqnum=next_expected%SEQ_MOD,
         length=0,
-        timestamp=int(time.time()),
+        timestamp=int(last_timestamp),
         payload=b"",
     )
+def build_sack_segment(seqnum,payload):
+    return None
 
-def send_ack(sock,server_addr,seqnum):
-    ack=build_ack_segment(seqnum)
+def send_ack(sock,server_addr,next_expected, recv_buffer, last_timestamp):
+    ack=build_ack_segment(next_expected,recv_buffer,last_timestamp)
     sock.sendto(ack.encode(),server_addr)
-    log(f"CLIENT : ACK envoyé seq={seqnum}")
+    log(f"CLIENT : ACK envoyé seq={next_expected}, window={ack.window}")
+
+def is_in_window(seqnum,next_expected):
+     return ((seqnum - next_expected) % SEQ_MOD) < WINDOWS_SIZE
+
+def empty_buffer(recv_buffer,next_expected,file_content):
+    finished=False
+    last_timestamp=0
+    while next_expected in recv_buffer:
+        segment=recv_buffer.pop(next_expected)
+        last_timestamp=segment.timestamp
+        if segment.length==0:
+            finished=True
+            next_expected=(next_expected +1)%SEQ_MOD
+            break
+        file_content.extend(segment.payload)
+        next_expected=(next_expected+1)%SEQ_MOD
+    return next_expected,finished,last_timestamp
+
 
 def run_client(server_host,server_port,file_path,save_path):
     log("CLIENT: lancement du client")

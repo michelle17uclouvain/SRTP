@@ -69,6 +69,58 @@ def split_file(content):
         log(f"SERVER : bloc crée num={len(blocks)-1}, taille={len(block)}")
     return blocks
 
+def build_data_segment(seqnum,payload):
+     return SRTPSegment(
+        ptype=SRTPSegment.PTYPE_DATA,
+        window=1,
+        seqnum=seqnum,
+        length=len(payload),
+        timestamp=int(time.time()),
+        payload=payload,
+    ) 
+
+def send_data_segment(sock,client_addr,seqnum,payload):
+    segment=build_data_segment(seqnum,payload)
+    sock.sendto(segment.encode(),client_addr)
+    log(f"SERVER: Segment DATA envoyé à {client_addr}, seq={seqnum}, payload={len(payload)}")
+
+
+def receive_ack(sock):
+    log("SERVER: En attente d'un ACK...")
+    data,client_addr=sock.recvfrom(MAX_DATAGRAM_SIZE)
+    log(f"SERVER: ACK reçu de {client_addr}, taille={len(data)} octets")
+    segment=SRTPSegment.decode(data)
+
+    if segment.ptype!=SRTPSegment.PTYPE_ACK:
+        raise ValueError("le client doit répondre avec un ack")
+    
+    return segment, client_addr
+
+def remember_sent_packet(sent_packets, seq_num, block_index, segment):
+    sent_packets[seq_num] = {
+        "block_index": block_index,
+        "segment": segment,
+        "sent_time": time.time(),
+        "acked": False,
+    }
+def mark_packet_as_acked(sent_packets,seq_num):
+    if seq_num in sent_packets:
+        sent_packets[seq_num]["acked"]=True
+        
+def send_end_segment(sock,client_addr,seqnum):
+    end_segment=SRTPSegment(
+        ptype=SRTPSegment.PTYPE_DATA,
+        window=0,
+        seqnum=seqnum,
+        length=0,
+        timestamp=int(time.time()),
+        payload=b"",
+    )
+    sock.sendto(end_segment.encode(), client_addr)
+    log(f"SERVER : segment de fin envoyé seq={seqnum}")
+
+
+
 def send_file_block(sock,client_addr,content):
     blocks=split_file(content)
     log(f"SERVER : fichier decoupe en {len(blocks)} bloc(s)")
@@ -87,45 +139,9 @@ def send_file_block(sock,client_addr,content):
     log(f"SERVER : ACK de fin reçu pour seq={ack_segment.seqnum}")
         
 
-def build_data_segment(seqnum,payload):
-     return SRTPSegment(
-        ptype=SRTPSegment.PTYPE_DATA,
-        window=1,
-        seqnum=seqnum,
-        length=len(payload),
-        timestamp=int(time.time()),
-        payload=payload,
-    ) 
-
-def send_data_segment(sock,client_addr,seqnum,payload):
-    segment=build_data_segment(seqnum,payload)
-    sock.sendto(segment.encode(),client_addr)
-    log(f"SERVER: Segment DATA envoyé à {client_addr}, seq={seqnum}, payload={len(payload)}")
 
 
-def send_end_segment(sock,client_addr,seqnum):
-    end_segment=SRTPSegment(
-        ptype=SRTPSegment.PTYPE_DATA,
-        window=0,
-        seqnum=seqnum,
-        length=0,
-        timestamp=int(time.time()),
-        payload=b"",
-    )
-    sock.sendto(end_segment.encode(), client_addr)
-    log(f"SERVER : segment de fin envoyé seq={seqnum}")
 
-
-def receive_ack(sock):
-    log("SERVER: En attente d'un ACK...")
-    data,client_addr=sock.recvfrom(MAX_DATAGRAM_SIZE)
-    log(f"SERVER: ACK reçu de {client_addr}, taille={len(data)} octets")
-    segment=SRTPSegment.decode(data)
-
-    if segment.ptype!=SRTPSegment.PTYPE_ACK:
-        raise ValueError("le client doit répondre avec un ack")
-    
-    return segment, client_addr
 
 def run_server(host, port,root_dir):
     log("SERVER: lancement du serveur")
