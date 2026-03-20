@@ -38,7 +38,7 @@ def run_client_with_server_thread(port, server_func, file_path="/test"):
     with tempfile.NamedTemporaryFile(delete=False) as f:
         save_path = f.name
     try:
-        from client_v2 import run_client
+        from client import run_client
         run_client("::1", port, file_path, save_path)
         with open(save_path, "rb") as f:
              return f.read()
