@@ -41,9 +41,10 @@ def create_client_socket():
 
 def resolve_server_address(host, port):
     log(f"CLIENT:resolution de l'adresse du serveur  {host}:{port}")
-    server_addr=socket.getaddrinfo(host,port,socket.AF_INET6,socket.SOCK_DGRAM)
+    server_info=socket.getaddrinfo(host,port,socket.AF_INET6,socket.SOCK_DGRAM)
+    server_addr = server_info[0][4]
     log(f"CLIENT: adresse resolue : {server_addr}")
-    return server_addr[0][4]
+    return server_addr
 
 def build_get_segment(file_path):
     payload=f"GET {file_path}".encode("ascii")
@@ -53,29 +54,6 @@ def build_get_segment(file_path):
         seqnum=0,
         length=len(payload),
         timestamp=int(time.time()),
-        payload=payload,
-    )
-def encode_sack_seqnums(seq_nums):
-    bit_string = ""
-    for seq_num in seq_nums:
-        bit_string += format(seq_num % SEQ_MOD, "011b")
-    while len(bit_string) % 32 != 0:
-        bit_string += "0"
-    payload = bytearray()
-    for i in range(0, len(bit_string), 8):
-        byte = bit_string[i:i + 8]
-        payload.append(int(byte, 2))
-    return bytes(payload)
-
-def build_sack_segment(next_expected, recv_buffer, last_timestamp):
-    sack_seq_nums = sorted(recv_buffer.keys())
-    payload = encode_sack_seqnums(sack_seq_nums)
-    return SRTPSegment(
-        ptype=SRTPSegment.PTYPE_SACK,
-        window=get_receive_window(recv_buffer),
-        seqnum=next_expected % SEQ_MOD,
-        length=len(payload),
-        timestamp=int(last_timestamp),
         payload=payload,
     )
 
@@ -92,7 +70,10 @@ def receive_data_segment(sock, server_addr):
     log(f"CLIENT : datagramme recu de {addr}, taille={len(data)} octet")
     if addr != server_addr:
         raise ValueError("segment reçu d'une autre adresse")
-    segment = SRTPSegment.decode(data)
+    try :
+        segment = SRTPSegment.decode(data)
+    except Exception:
+        raise ValueError("segment invalide")
     if segment is None:
         raise ValueError("segment invalide")
     if segment.ptype != SRTPSegment.PTYPE_DATA:
@@ -103,11 +84,48 @@ def get_receive_window(recv_buffer):
     free_slots = WINDOWS_SIZE - len(recv_buffer)
     return max(0, min(63, free_slots))
 
+def save_file(save_path,content):
+    log(f"CLIENT : sauvegarde du fichier dans : {save_path}")
+    with open(save_path,"wb") as f: 
+        f.write(content)
+
+def build_ack_segment(next_expected,recv_buffer,last_timestamp):
+    return SRTPSegment(
+        ptype=SRTPSegment.PTYPE_ACK,
+        window=get_receive_window(recv_buffer),
+        seqnum=next_expected%SEQ_MOD,
+        length=0,
+        timestamp=int(last_timestamp),
+        payload=b"",
+    )
+
+def send_ack(sock, server_addr, next_expected, recv_buffer, last_timestamp):
+    ack = build_ack_segment(next_expected, recv_buffer, last_timestamp)
+    log(f"CLIENT: ACK envoye, ack={ack.seqnum} ")
+    sock.sendto(ack.encode(), server_addr)
+
+def is_in_window(seqnum,next_expected):
+     return ((seqnum - next_expected) % SEQ_MOD) < WINDOWS_SIZE
+
+def empty_buffer(recv_buffer,next_expected,file_content):
+    finished=False
+    last_timestamp=0
+    while next_expected in recv_buffer:
+        segment=recv_buffer.pop(next_expected)
+        last_timestamp=segment.timestamp
+        if segment.length==0:
+            finished=True
+            next_expected=(next_expected +1)%SEQ_MOD
+            break
+        file_content.extend(segment.payload)
+        next_expected=(next_expected+1)%SEQ_MOD
+    return next_expected,finished,last_timestamp
+
+
 def receive_file(sock, server_addr,file_path):
     file_content = bytearray()
     recv_buffer = {}
     next_expected = 0
-
     while True:
         try:
             segment = receive_data_segment(sock, server_addr)
@@ -141,7 +159,7 @@ def receive_file(sock, server_addr,file_path):
                 break
             continue
 
-        # paquet en avance mais encore dans la fenêtre
+        # paquet en avance mais encore dans la fenetre
         if is_in_window(segment.seqnum, next_expected):
             if segment.seqnum not in recv_buffer:
                 recv_buffer[segment.seqnum] = segment
@@ -162,49 +180,6 @@ def receive_file(sock, server_addr,file_path):
         log(f"CLIENT: segment ignoré seq={segment.seqnum}")
 
     return bytes(file_content)
-def save_file(save_path,content):
-    log(f"CLIENT : sauvegarde du fichier dans : {save_path}")
-    with open(save_path,"wb") as f: 
-        f.write(content)
-    
-
-def build_ack_segment(next_expected,recv_buffer,last_timestamp):
-    return SRTPSegment(
-        ptype=SRTPSegment.PTYPE_ACK,
-        window=get_receive_window(recv_buffer),
-        seqnum=next_expected%SEQ_MOD,
-        length=0,
-        timestamp=int(last_timestamp),
-        payload=b"",
-    )
-
-def send_ack(sock, server_addr, next_expected, recv_buffer, last_timestamp):
-    if recv_buffer:
-        ack = build_sack_segment(next_expected, recv_buffer, last_timestamp)
-        sack_list = sorted(recv_buffer.keys())
-        log(f"CLIENT:  SACK envoye,  sack={next_expected} , nums_seq={sack_list} buffer_size={len(recv_buffer)}")
-    else:
-        ack = build_ack_segment(next_expected, recv_buffer, last_timestamp)
-        log(f"CLIENT: ACK envoye, ack={next_expected} ")
-
-    sock.sendto(ack.encode(), server_addr)
-
-def is_in_window(seqnum,next_expected):
-     return ((seqnum - next_expected) % SEQ_MOD) < WINDOWS_SIZE
-
-def empty_buffer(recv_buffer,next_expected,file_content):
-    finished=False
-    last_timestamp=0
-    while next_expected in recv_buffer:
-        segment=recv_buffer.pop(next_expected)
-        last_timestamp=segment.timestamp
-        if segment.length==0:
-            finished=True
-            next_expected=(next_expected +1)%SEQ_MOD
-            break
-        file_content.extend(segment.payload)
-        next_expected=(next_expected+1)%SEQ_MOD
-    return next_expected,finished,last_timestamp
 
 
 def run_client(server_host,server_port,file_path,save_path):
@@ -219,7 +194,6 @@ def run_client(server_host,server_port,file_path,save_path):
     finally:
         sock.close()
         log("CLIENT : fermerture du socket ")
-
 
 def main():
     args=parse_args()

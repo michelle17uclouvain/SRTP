@@ -1,7 +1,11 @@
 SERVER: lancement du serveur
-SERVER : creation du socket UDP sur [::1]:6000
-serveur ecoute sur le port [::1]:6000
+SERVER : creation du socket UDP sur [::]:9000
+serveur ecoute sur le port [::]:9000
 SERVER : en attente d'une requête client...
-SERVER: segment reçu de ('::1', 5000, 0, 0), taille=29
-SERVER : segment invalide ignoré
-SERVER : en attente d'une requête client...
+SERVER: segment reçu de ('::1', 49934, 0, 0), taille=35
+ SERVEUR : Requete recu du client 
+SERVER: requette reçue : 'GET /inexistant.txt'
+SERVER: Chemin resolu : /media/ingridngoune/Disque/COURS PASSERRELLE/Reseaux/SRTP/files/inexistant.txt
+SERVER : fichier introuvable : /media/ingridngoune/Disque/COURS PASSERRELLE/Reseaux/SRTP/files/inexistant.txt
+SERVER : segment de fin envoyé seq=0
+SERVEUR : fermeture du socket
