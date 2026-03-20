@@ -25,13 +25,10 @@ def parse_args():
 def parse_url(url):
     parsed_url=urlparse(url)
     log(f"CLIENT : analyse de l'URL : {url}")
-
     if parsed_url.scheme!="http":
         raise ValueError("l'URL doit commencer par http://")
-    
     if not parsed_url.hostname or not parsed_url.port or not parsed_url.path:
         raise ValueError("URL invalide")
-    
     log(f"CLIENT: host={parsed_url.hostname}, port={parsed_url.port}, path={parsed_url.path}")
     return parsed_url.hostname, parsed_url.port,parsed_url.path
 
@@ -43,9 +40,9 @@ def create_client_socket():
     return sock
 
 def resolve_server_address(host, port):
-    log(f"CLIENT:  Résolution de l'adresse du serveur  {host}:{port}")
+    log(f"CLIENT:resolution de l'adresse du serveur  {host}:{port}")
     server_addr=socket.getaddrinfo(host,port,socket.AF_INET6,socket.SOCK_DGRAM)
-    log(f"[CLIENT: adresse resolue : {server_addr}")
+    log(f"CLIENT: adresse resolue : {server_addr}")
     return server_addr[0][4]
 
 def build_get_segment(file_path):
@@ -58,6 +55,29 @@ def build_get_segment(file_path):
         timestamp=int(time.time()),
         payload=payload,
     )
+def encode_sack_seqnums(seq_nums):
+    bit_string = ""
+    for seq_num in seq_nums:
+        bit_string += format(seq_num % SEQ_MOD, "011b")
+    while len(bit_string) % 32 != 0:
+        bit_string += "0"
+    payload = bytearray()
+    for i in range(0, len(bit_string), 8):
+        byte = bit_string[i:i + 8]
+        payload.append(int(byte, 2))
+    return bytes(payload)
+
+def build_sack_segment(next_expected, recv_buffer, last_timestamp):
+    sack_seq_nums = sorted(recv_buffer.keys())
+    payload = encode_sack_seqnums(sack_seq_nums)
+    return SRTPSegment(
+        ptype=SRTPSegment.PTYPE_SACK,
+        window=get_receive_window(recv_buffer),
+        seqnum=next_expected % SEQ_MOD,
+        length=len(payload),
+        timestamp=int(last_timestamp),
+        payload=payload,
+    )
 
 def send_get_request(sock,server_addr,file_path):
     segment=build_get_segment(file_path)
@@ -66,35 +86,44 @@ def send_get_request(sock,server_addr,file_path):
     log(f"CLIENT Segment envoyé : seq={segment.seqnum}, length={segment.length}")
 
 
-def receive_data_segment(sock):
+def receive_data_segment(sock, server_addr):
     log("CLIENT : en attente d'un segment DATA..")
-    data,addr=sock.recvfrom(MAX_DATAGRAM_SIZE)
+    data, addr = sock.recvfrom(MAX_DATAGRAM_SIZE)
     log(f"CLIENT : datagramme recu de {addr}, taille={len(data)} octet")
-    segment=SRTPSegment.decode(data)
-    if segment.ptype!=SRTPSegment.PTYPE_DATA:
-        raise ValueError("Le serveur foit répondre avec un segment de type DATA")
+    if addr != server_addr:
+        raise ValueError("segment reçu d'une autre adresse")
+    segment = SRTPSegment.decode(data)
+    if segment is None:
+        raise ValueError("segment invalide")
+    if segment.ptype != SRTPSegment.PTYPE_DATA:
+        raise ValueError("Le serveur doit répondre avec un segment de type DATA")
     return segment
 
 def get_receive_window(recv_buffer):
-    return WINDOWS_SIZE-len(recv_buffer)
+    free_slots = WINDOWS_SIZE - len(recv_buffer)
+    return max(0, min(63, free_slots))
 
-def receive_file(sock, server_addr):
+def receive_file(sock, server_addr,file_path):
     file_content = bytearray()
     recv_buffer = {}
     next_expected = 0
 
     while True:
         try:
-            segment = receive_data_segment(sock)
+            segment = receive_data_segment(sock, server_addr)
         except socket.timeout:
-            log(f"CLIENT: timeout de réception")
+            log("CLIENT: timeout de reception")
+            if next_expected == 0 and not recv_buffer:
+                log("CLIENT: retransmission GET")
+                send_get_request(sock, server_addr, file_path)
             continue
         except (ValueError, OSError):
-            log(f"CLIENT: paquet invalide ignore")
+            log("CLIENT: paquet invalide ignore")
             continue
+
         log(f"CLIENT: segment DATA reçu seq={segment.seqnum}, length={segment.length}")
 
-        #paquet attendu
+        # paquet attendu
         if segment.seqnum == next_expected:
             if segment.length == 0:
                 log("CLIENT: fin de transfert")
@@ -106,24 +135,33 @@ def receive_file(sock, server_addr):
             next_expected = (next_expected + 1) % SEQ_MOD
             next_expected, finished, _ = empty_buffer(recv_buffer, next_expected, file_content)
             send_ack(sock, server_addr, next_expected, recv_buffer, segment.timestamp)
+
             if finished:
                 log("CLIENT: fin de transfert venu du buffer")
                 break
             continue
-        #paquet pas en ordre mais dans la fenetre donc on accepte 
+
+        # paquet en avance mais encore dans la fenêtre
         if is_in_window(segment.seqnum, next_expected):
             if segment.seqnum not in recv_buffer:
                 recv_buffer[segment.seqnum] = segment
-                log(f"CLIENT: segment pas en  ordre stocke seq={segment.seqnum}")
+                log(f"CLIENT: segment pas en ordre stocke seq={segment.seqnum}")
+            else:
+                log(f"CLIENT: doublon dans le buffer seq={segment.seqnum}")
 
             send_ack(sock, server_addr, next_expected, recv_buffer, segment.timestamp)
             continue
 
-        #paquet qui n'est pas dans la fenete
+        # paquet ddeja recu ou ancien paquet on renvoit l'ack en cours
+        if ((next_expected - segment.seqnum) % SEQ_MOD) < WINDOWS_SIZE:
+            log(f"CLIENT: doublon reçu seq={segment.seqnum}, ACK répété seq={next_expected}")
+            send_ack(sock, server_addr, next_expected, recv_buffer, segment.timestamp)
+            continue
+
+        # paquet totalement hors fenêtre
         log(f"CLIENT: segment ignoré seq={segment.seqnum}")
 
     return bytes(file_content)
-
 def save_file(save_path,content):
     log(f"CLIENT : sauvegarde du fichier dans : {save_path}")
     with open(save_path,"wb") as f: 
@@ -139,13 +177,17 @@ def build_ack_segment(next_expected,recv_buffer,last_timestamp):
         timestamp=int(last_timestamp),
         payload=b"",
     )
-def build_sack_segment(seqnum,payload):
-    return None
 
-def send_ack(sock,server_addr,next_expected, recv_buffer, last_timestamp):
-    ack=build_ack_segment(next_expected,recv_buffer,last_timestamp)
-    sock.sendto(ack.encode(),server_addr)
-    log(f"CLIENT : ACK envoyé seq={next_expected}, window={ack.window}")
+def send_ack(sock, server_addr, next_expected, recv_buffer, last_timestamp):
+    if recv_buffer:
+        ack = build_sack_segment(next_expected, recv_buffer, last_timestamp)
+        sack_list = sorted(recv_buffer.keys())
+        log(f"CLIENT:  SACK envoye,  sack={next_expected} , nums_seq={sack_list} buffer_size={len(recv_buffer)}")
+    else:
+        ack = build_ack_segment(next_expected, recv_buffer, last_timestamp)
+        log(f"CLIENT: ACK envoye, ack={next_expected} ")
+
+    sock.sendto(ack.encode(), server_addr)
 
 def is_in_window(seqnum,next_expected):
      return ((seqnum - next_expected) % SEQ_MOD) < WINDOWS_SIZE
@@ -171,7 +213,7 @@ def run_client(server_host,server_port,file_path,save_path):
     try:
         server_addr = resolve_server_address(server_host,server_port)
         send_get_request(sock,server_addr,file_path)
-        content=receive_file(sock,server_addr)
+        content=receive_file(sock,server_addr,file_path)
         save_file(save_path,content)
         log("CLIENT : tranfert simple terminé")
     finally:

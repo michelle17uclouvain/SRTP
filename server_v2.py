@@ -64,7 +64,8 @@ def read_file_content(full_path):
     
 def split_file(content):
     blocks=[]
-    max_size=SRTPSegment.MAX_LENGTH
+    #max_size=SRTPSegment.MAX_LENGTH
+    max_size=512
     for i in range(0,len(content),max_size):
         block=content[i:i +max_size]
         blocks.append(block)
@@ -89,6 +90,9 @@ def send_data_segment(sock, client_addr, seqnum, payload):
     send_segment(sock, client_addr, segment)
     log(f"SERVER: segment DATA envoyé à {client_addr}, seq={seqnum}, payload={len(payload)}")
     return segment
+
+def ack_is_valid(ack_seq, first_unacked_seq, next_seq_to_send):
+    return first_unacked_seq <= ack_seq <= next_seq_to_send
 
 def receive_ack(sock, expected_client_addr):
     while True:
@@ -140,7 +144,7 @@ def send_packets_in_window(sock,client_addr, blocks,first_unacked_seq,next_seq_t
         payload=blocks[next_seq_to_send] 
         segment=build_data_segment(seq_num,payload)
         send_segment(sock,client_addr,segment)
-        log(f"SERVER: DATA envoyé seq={seq_num}, len={len(payload)}")
+        log(f"SERVER: DATA envoyé seq={seq_num}, taille={len(payload)}")
         remember_sent_packet(sent_packets, seq_num, next_seq_to_send, segment)
         next_seq_to_send += 1
     return next_seq_to_send
@@ -204,8 +208,20 @@ def send_file_block(sock,client_addr,content):
         while first_unacked_seq<len(blocks):
             next_seq_to_send=send_packets_in_window(sock,client_addr,blocks,first_unacked_seq,next_seq_to_send,client_window,sent_packets)
             try:
-                ack_segment=receive_ack(sock,client_addr)
-                log(f"SERVER : ACK/SACK recu seq={ack_segment.seqnum}, window={ack_segment.window}")
+                ack_segment = receive_ack(sock, client_addr)
+                if ack_segment.ptype == SRTPSegment.PTYPE_ACK:
+                    log(f"SERVER: ACK recu ack={ack_segment.seqnum}")
+
+                elif ack_segment.ptype == SRTPSegment.PTYPE_SACK:
+                    try:
+                        sack_list = ack_segment.payload.decode()
+                    except:
+                        sack_list = "decode error"
+                    log(f"SERVER: SACK recu  sack={ack_segment.seqnum} , num_seq={sack_list}")
+                
+                if not ack_is_valid(ack_segment.seqnum, first_unacked_seq, next_seq_to_send):
+                    log(f"SERVER : vieux ACK ignore seq={ack_segment.seqnum}")
+                    continue
                 client_window = ack_segment.window
                 if client_window < 0:
                     client_window = 0
@@ -213,16 +229,18 @@ def send_file_block(sock,client_addr,content):
 
             except socket.timeout:
                 retransmit_timeout_packets(sock,client_addr,sent_packets,timeout)
-        log("SERVER : tous les blocs ont été acquittés")
+        log("SERVER : tous les blocs ont ete acquites")
         end_seq=len(blocks)%SEQ_MOD
 
         while True:
-            send_end_segment(sock,client_addr,end_seq)
+            send_end_segment(sock, client_addr, end_seq)
             try:
-                ack_segment=receive_ack(sock,client_addr)
-                if ack_segment.seqnum == (end_seq + 1) % SEQ_MOD:
-                    log(f"SERVER : ACK de fin reçu seq={ack_segment.seqnum}")
-                    break
+                while True:
+                    ack_segment = receive_ack(sock, client_addr)
+                    if ack_segment.seqnum == (end_seq + 1) % SEQ_MOD:
+                        log(f"SERVER : ACK de fin reçu seq={ack_segment.seqnum}")
+                        return
+                    log(f"SERVER : ACK non final ignoré seq={ack_segment.seqnum}")
             except socket.timeout:
                 log("SERVER : timeout sur le segment de fin, retransmission")
     finally:
