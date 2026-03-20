@@ -1,37 +1,58 @@
-import os
 import sys
-import threading
-import time
+import os
+import socket
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
-from client import run_client
-from server import run_server
+from SRTPSegment import SRTPSegment
+from helpers import make_data_seg, run_client_with_server_thread
 
 
-def test_step3_simple_transfer(tmp_path):
-    root_dir = tmp_path / "files"
-    root_dir.mkdir()
+def test_client_receives_file():
+    port = 19920
+    content = b"hello world"
+    def server_simple(ready):
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind(("::1", port))
+        sock.settimeout(5.0)
+        ready.set()
+        try:
+            _, addr = sock.recvfrom(2048)
+            sock.sendto(make_data_seg(0, content), addr)
 
-    source_file = root_dir / "test.txt"
-    source_content = b"hello step 3"
-    source_file.write_bytes(source_content)
+            try:
+                sock.recvfrom(2048)
+            except socket.timeout:
+                pass
+            sock.sendto(make_data_seg(1, b"", window=0), addr)
+        finally:
+            sock.close()
+    result = run_client_with_server_thread(port, server_simple)
+    assert result == content
 
-    save_path = tmp_path / "resultat.txt"
+def test_client_sends_valid_ack():
+    port = 19921
+    received_acks = []
 
-    host = "::1"
-    port = 19930
-
-    server_thread = threading.Thread(
-        target=run_server,
-        args=(host, port, str(root_dir)),
-        daemon=True,
-    )
-    server_thread.start()
-
-    time.sleep(0.5)
-
-    run_client(host, port, "/test.txt", str(save_path))
-
-    assert save_path.exists()
-    assert save_path.read_bytes() == source_content
+    def server_capture(ready):
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind(("::1", port))
+        sock.settimeout(5.0)
+        ready.set()
+        try:
+            _, addr = sock.recvfrom(2048)
+            sock.sendto(make_data_seg(0, b"hi"), addr)
+            raw, _ = sock.recvfrom(2048)
+            received_acks.append(raw)
+            sock.sendto(make_data_seg(1, b"", window=0), addr)
+        finally:
+            sock.close()
+    run_client_with_server_thread(port, server_capture, file_path="/f")
+    assert len(received_acks) >= 1
+    ack = SRTPSegment.decode(received_acks[0])
+    assert ack is not None
+    assert ack.ptype == SRTPSegment.PTYPE_ACK
+    assert ack.length == 0
+    assert ack.seqnum == 1

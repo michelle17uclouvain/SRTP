@@ -95,7 +95,7 @@ def build_ack_segment(next_expected,recv_buffer,last_timestamp):
         window=get_receive_window(recv_buffer),
         seqnum=next_expected%SEQ_MOD,
         length=0,
-        timestamp=int(last_timestamp),
+        timestamp=int(time.time() * 1000) & 0xFFFFFFFF,
         payload=b"",
     )
 
