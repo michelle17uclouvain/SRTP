@@ -70,8 +70,7 @@ def read_file_content(full_path):
     
 def split_file(content):
     blocks=[]
-    #max_size=SRTPSegment.MAX_LENGTH
-    max_size=512
+    max_size=SRTPSegment.MAX_LENGTH
     for i in range(0,len(content),max_size):
         block=content[i:i +max_size]
         blocks.append(block)
