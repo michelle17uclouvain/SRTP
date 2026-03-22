@@ -50,7 +50,7 @@ def build_get_segment(file_path):
     payload=f"GET {file_path}".encode("ascii")
     return SRTPSegment(
         ptype=SRTPSegment.PTYPE_DATA,
-        window=1,
+        window=WINDOWS_SIZE,
         seqnum=0,
         length=len(payload),
         timestamp=int(time.time()),
@@ -95,7 +95,7 @@ def build_ack_segment(next_expected,recv_buffer,last_timestamp):
         window=get_receive_window(recv_buffer),
         seqnum=next_expected%SEQ_MOD,
         length=0,
-        timestamp=int(time.time() * 1000) & 0xFFFFFFFF,
+        timestamp=last_timestamp,
         payload=b"",
     )
 
