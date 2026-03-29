@@ -89,19 +89,50 @@ def save_file(save_path,content):
     with open(save_path,"wb") as f: 
         f.write(content)
 
-def build_ack_segment(next_expected,recv_buffer,last_timestamp):
+def encode_sack_payload(out_of_order_seqnums):
+    """Encode une liste de seqnums hors-séquence en payload SACK (11 bits par seqnum, paddé à multiple de 4 octets)."""
+    bits = []
+    for seq in out_of_order_seqnums[:744]:  # max 744 seqnums dans 1024 octets
+        for bit_pos in range(10, -1, -1):   # 11 bits MSB first
+            bits.append((seq >> bit_pos) & 1)
+    # padding pour arriver à un multiple de 32 bits (4 octets)
+    while len(bits) % 32 != 0:
+        bits.append(0)
+    payload = bytearray()
+    for i in range(0, len(bits), 8):
+        byte = 0
+        for b in bits[i:i+8]:
+            byte = (byte << 1) | b
+        payload.append(byte)
+    return bytes(payload)
+
+def build_ack_segment(next_expected, recv_buffer, last_timestamp):
+    out_of_order = sorted(recv_buffer.keys())
+    if not out_of_order:
+        # pas de paquet hors-séquence → ACK simple
+        return SRTPSegment(
+            ptype=SRTPSegment.PTYPE_ACK,
+            window=get_receive_window(recv_buffer),
+            seqnum=next_expected % SEQ_MOD,
+            length=0,
+            timestamp=last_timestamp,
+            payload=b"",
+        )
+    # paquets hors-séquence présents → SACK
+    payload = encode_sack_payload(out_of_order)
     return SRTPSegment(
-        ptype=SRTPSegment.PTYPE_ACK,
+        ptype=SRTPSegment.PTYPE_SACK,
         window=get_receive_window(recv_buffer),
-        seqnum=next_expected%SEQ_MOD,
-        length=0,
+        seqnum=next_expected % SEQ_MOD,
+        length=len(payload),
         timestamp=last_timestamp,
-        payload=b"",
+        payload=payload,
     )
 
 def send_ack(sock, server_addr, next_expected, recv_buffer, last_timestamp):
     ack = build_ack_segment(next_expected, recv_buffer, last_timestamp)
-    log(f"CLIENT: ACK envoye, ack={ack.seqnum} ")
+    ptype_str = "SACK" if ack.ptype == SRTPSegment.PTYPE_SACK else "ACK"
+    log(f"CLIENT: {ptype_str} envoyé, seqnum={ack.seqnum}, hors-séquence={sorted(recv_buffer.keys())}")
     sock.sendto(ack.encode(), server_addr)
 
 def is_in_window(seqnum,next_expected):
@@ -203,9 +234,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-

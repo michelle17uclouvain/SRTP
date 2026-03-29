@@ -174,7 +174,24 @@ def mark_acked_packet(sent_packets,seq_num):
         sent_packets[seq_num]["acked"]=True
         log(f"SERVER: paquet acquitté ACK seq={seq_num}")
 
-def mark_acked_packets_from_response(ack_segment, sent_packets, first_unacked_index,next_index_to_send):
+def decode_sack_payload(payload):
+    """Décode le payload d'un PTYPE_SACK → liste de seqnums reçus hors-séquence par le client."""
+    bits = []
+    for byte in payload:
+        for bit_pos in range(7, -1, -1):
+            bits.append((byte >> bit_pos) & 1)
+    seqnums = []
+    i = 0
+    while i + 10 < len(bits):
+        val = 0
+        for b in bits[i:i+11]:
+            val = (val << 1) | b
+        seqnums.append(val)
+        i += 11
+    return seqnums
+
+def mark_acked_packets_from_response(ack_segment, sent_packets, first_unacked_index, next_index_to_send):
+    # ACK cumulatif : tout ce qui précède ack_segment.seqnum est acquitté
     current_index = first_unacked_index
     while current_index < next_index_to_send:
         seq_num = current_index % SEQ_MOD
@@ -182,6 +199,13 @@ def mark_acked_packets_from_response(ack_segment, sent_packets, first_unacked_in
             break
         mark_acked_packet(sent_packets, seq_num)
         current_index += 1
+    # SACK : marquer aussi les paquets déjà reçus hors-séquence par le client
+    if ack_segment.ptype == SRTPSegment.PTYPE_SACK and ack_segment.length > 0:
+        sacked_seqnums = decode_sack_payload(ack_segment.payload)
+        log(f"SERVER: SACK reçu, seqnums déjà reçus par le client : {sacked_seqnums}")
+        for seq in sacked_seqnums:
+            if seq in sent_packets and not sent_packets[seq]["acked"]:
+                mark_acked_packet(sent_packets, seq)
 
 def update_after_response(ack_segment,sent_packets,first_unacked_index,next_index_to_send):
     mark_acked_packets_from_response(ack_segment,sent_packets,first_unacked_index,next_index_to_send)
@@ -272,4 +296,3 @@ def main():
 
 if __name__=="__main__":
     main()
-    
